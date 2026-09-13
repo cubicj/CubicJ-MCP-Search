@@ -1,0 +1,10 @@
+export const BASE_URL = "https://gall.dcinside.com";
+
+export const URLS = {
+  POST_VIEW: `${BASE_URL}/board/view/`,
+  MINOR_POST_VIEW: `${BASE_URL}/mgallery/board/view/`,
+  COMMENT: `${BASE_URL}/board/comment/`,
+} as const;
+
+export const USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";

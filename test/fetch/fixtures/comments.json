@@ -1,0 +1,32 @@
+{
+  "total_cnt": "2",
+  "comments": [
+    {
+      "no": "1001",
+      "memo": "Visible comment",
+      "name": "commenter",
+      "user_id": "commenter-id",
+      "ip": "",
+      "reg_date": "06.25 13:14:15",
+      "del_yn": "N"
+    },
+    {
+      "no": "1002",
+      "memo": "Deleted comment",
+      "name": "deleted",
+      "user_id": "",
+      "ip": "1.2",
+      "reg_date": "2026-06-25 14:15:16",
+      "del_yn": "Y"
+    },
+    {
+      "no": 0,
+      "memo": "Ad block",
+      "name": "",
+      "user_id": "",
+      "ip": "",
+      "reg_date": "",
+      "del_yn": "N"
+    }
+  ]
+}

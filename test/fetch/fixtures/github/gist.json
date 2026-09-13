@@ -1,0 +1,25 @@
+{
+  "id": "dac883aa0cd542e57dcc15dd4d735fc5",
+  "description": "PiTower Gen2 cyber-industrial 240x320 LCD dashboard",
+  "html_url": "https://gist.github.com/iUniker/dac883aa0cd542e57dcc15dd4d735fc5",
+  "created_at": "2026-08-22T09:06:45Z",
+  "owner": {
+    "login": "iUniker"
+  },
+  "files": {
+    "install-pitower-tech-ui.sh": {
+      "filename": "install-pitower-tech-ui.sh",
+      "language": "Shell",
+      "raw_url": "https://gist.githubusercontent.com/iUniker/dac883aa0cd542e57dcc15dd4d735fc5/raw/81d1c6cce2efcde9c23da109dc1b0a3640b1d89c/install-pitower-tech-ui.sh",
+      "truncated": false,
+      "content": "#!/usr/bin/env bash\nset -Eeuo pipefail\n"
+    },
+    "pitower_lcd_tech.py": {
+      "filename": "pitower_lcd_tech.py",
+      "language": "Python",
+      "raw_url": "https://gist.githubusercontent.com/iUniker/dac883aa0cd542e57dcc15dd4d735fc5/raw/41fe49865c367f32dadb2f6e081bfa15bb2bf9c7/pitower_lcd_tech.py",
+      "truncated": false,
+      "content": "#!/usr/bin/env python3\nfrom __future__ import annotations\n"
+    }
+  }
+}
