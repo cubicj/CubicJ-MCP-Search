@@ -66,6 +66,15 @@ export interface FetchArgs {
   raw: boolean;
 }
 
+function redactGithubToken(text: string): string {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) return text;
+  const values = new Set([token, token.trim()].filter((value) => value.length > 0));
+  let redacted = text;
+  for (const value of values) redacted = redacted.split(value).join("[REDACTED]");
+  return redacted;
+}
+
 export async function runFetch({ url, max_length, start_index, raw }: FetchArgs): Promise<CallToolResult> {
   try {
     if (raw) {
@@ -103,7 +112,7 @@ export async function runFetch({ url, max_length, start_index, raw }: FetchArgs)
       },
     };
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = redactGithubToken(error instanceof Error ? error.message : String(error));
     return { content: [{ type: "text", text: `Error fetching ${url}: ${msg}` }], isError: true };
   }
 }

@@ -83,7 +83,10 @@ export function createBraveClient(options: BraveClientOptions): BraveClient {
           },
           signal: controller.signal,
         });
-        if (!response.ok) throw new BraveApiError(response.status);
+        if (!response.ok) {
+          controller.abort();
+          throw new BraveApiError(response.status);
+        }
         try {
           return (await response.json()) as unknown;
         } catch (error) {

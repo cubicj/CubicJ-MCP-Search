@@ -771,3 +771,8 @@ test("web_search reports a missing API key when the process has none", async () 
     await stopProcess(child);
   }
 });
+
+test("built entrypoint starts with a node shebang", () => {
+  const firstLine = readFileSync(new URL("../dist/index.js", import.meta.url), "utf8").split("\n")[0];
+  assert.equal(firstLine, "#!/usr/bin/env node");
+});

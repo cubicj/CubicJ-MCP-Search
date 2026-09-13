@@ -1,6 +1,6 @@
 import { once } from "node:events";
 import { createServer } from "node:http";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { z } from "zod";
 import { fetchAnnotations, fetchInputSchema, fetchMeta, runFetch } from "../../src/tools/fetch.js";
 
@@ -34,6 +34,8 @@ afterAll(async () => {
   await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
 });
 
+afterEach(() => vi.unstubAllEnvs());
+
 const textOf = (result: { content: Array<{ type: string; text?: string }> }): string => result.content[0]?.text ?? "";
 
 describe("fetch schema", () => {
@@ -51,6 +53,19 @@ describe("fetch schema", () => {
 });
 
 describe("runFetch", () => {
+  test("never echoes GITHUB_TOKEN in error text", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "ghp_secret\nvalue");
+    const result = await runFetch({
+      url: "https://github.com/octocat/Hello-World",
+      raw: false,
+      start_index: 0,
+      max_length: 50000,
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).not.toContain("ghp_secret");
+    expect(textOf(result)).toContain("[REDACTED]");
+  });
+
   test("raw mode slices by start_index and max_length with a truncation notice", async () => {
     const result = await runFetch({ url: `${baseUrl}/raw`, raw: true, start_index: 10, max_length: 5 });
     expect(result.isError).toBeUndefined();

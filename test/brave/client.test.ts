@@ -5,6 +5,20 @@ const okJson = (body: unknown) =>
   new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 
 describe("createBraveClient", () => {
+  test("aborts the response body when the status is not ok", async () => {
+    let signal: AbortSignal | undefined;
+    const fetchMock = vi.fn().mockImplementation((_url: unknown, init: { signal: AbortSignal }) => {
+      signal = init.signal;
+      return Promise.resolve(new Response(new ReadableStream<Uint8Array>(), { status: 429 }));
+    });
+    const client = createBraveClient({ apiKey: "k", fetch: fetchMock });
+
+    const error = await client.llmContext({ query: "coffee" }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(BraveApiError);
+    expect(signal?.aborted).toBe(true);
+  });
+
   test("sends a GET to /llm/context with the fixed and requested parameters", async () => {
     const fetchMock = vi.fn().mockResolvedValue(okJson({ grounding: { generic: [] } }));
     const client = createBraveClient({ apiKey: "secret-key", fetch: fetchMock });
