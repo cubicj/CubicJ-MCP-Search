@@ -1,0 +1,48 @@
+{
+  "grounding": {
+    "generic": [
+      {
+        "title": "MCP OAuth 2.1: PKCE, Scopes & Token Management",
+        "url": "https://www.practical-devsecops.com/mcp-oauth-2-1-implementation/",
+        "snippets": [
+          "# MCP OAuth 2.1 Security\n#### Key Takeaways\n- OAuth 2.1 is now the MCP auth standard.",
+          "## Refresh Token Rotation and the Token Lifecycle\nLong-lived refresh tokens are one of the most commonly exploited weaknesses."
+        ]
+      },
+      {
+        "url": "https://aembit.io/blog/mcp-authentication-and-authorization-patterns/",
+        "snippets": ["### OAuth 2.1 Is the Foundation\nShort life spans, refresh token rotation, strict audience validation.", 42]
+      },
+      {
+        "title": "No url here",
+        "snippets": ["ignored"]
+      }
+    ],
+    "poi": {
+      "name": "Cafe",
+      "url": "https://cafe.example.com",
+      "snippets": ["Open late"]
+    },
+    "map": [
+      { "name": "Museum", "url": "https://museum.example.com", "snippets": ["Founded in 1900"] }
+    ]
+  },
+  "sources": {
+    "https://www.practical-devsecops.com/mcp-oauth-2-1-implementation/": {
+      "title": "MCP OAuth 2.1: PKCE, Scopes & Token Management",
+      "hostname": "www.practical-devsecops.com",
+      "age": ["Tuesday, June 16, 2026", "2026-06-16", "89 days ago", "2026-06-16T12:57:39Z"],
+      "site_name": "Practical DevSecOps",
+      "favicon": "https://imgs.search.brave.com/favicon",
+      "thumbnail": { "src": "https://imgs.search.brave.com/thumb", "original": "https://example.com/og.webp" },
+      "snippet": "MCP OAuth 2.1: PKCE, refresh token rotation ...",
+      "description": "MCP OAuth 2.1: PKCE, refresh token rotation, scope enforcement."
+    },
+    "https://aembit.io/blog/mcp-authentication-and-authorization-patterns/": {
+      "title": "MCP Authentication and Authorization Patterns",
+      "hostname": "aembit.io",
+      "age": [],
+      "site_name": "Aembit"
+    }
+  }
+}
