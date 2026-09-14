@@ -27,6 +27,7 @@ describe("createBraveClient", () => {
       query: "site:example.com refresh token",
       maximum_number_of_urls: 8,
       maximum_number_of_tokens: 8192,
+      maximum_number_of_tokens_per_url: 2048,
       freshness: "pw",
       country: "KR",
       search_lang: "ko",
@@ -41,11 +42,12 @@ describe("createBraveClient", () => {
       q: "site:example.com refresh token",
       maximum_number_of_urls: "8",
       maximum_number_of_tokens: "8192",
+      maximum_number_of_tokens_per_url: "2048",
       freshness: "pw",
       country: "KR",
       search_lang: "ko",
       context_threshold_mode: "balanced",
-      enable_source_metadata: "true",
+      spellcheck: "false",
     });
     expect(init.method).toBe("GET");
     expect(init.headers).toEqual({
@@ -65,7 +67,7 @@ describe("createBraveClient", () => {
     expect(Object.fromEntries(parsed.searchParams)).toEqual({
       q: "coffee",
       context_threshold_mode: "balanced",
-      enable_source_metadata: "true",
+      spellcheck: "false",
     });
   });
 
@@ -94,6 +96,33 @@ describe("createBraveClient", () => {
 
     expect(error).toBeInstanceOf(BraveTimeoutError);
     expect((error as Error).message).toBe("Brave API timed out after 20ms");
+  });
+
+  test("defaults to a 30000ms timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      let signal: AbortSignal | undefined;
+      const fetchMock = vi.fn().mockImplementation(
+        (_url: unknown, init: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            signal = init.signal;
+            init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          }),
+      );
+      const client = createBraveClient({ apiKey: "k", fetch: fetchMock });
+      const pending = client.llmContext({ query: "coffee" }).catch((e: unknown) => e);
+
+      await vi.advanceTimersByTimeAsync(29999);
+      expect(signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const error = await pending;
+
+      expect(signal?.aborted).toBe(true);
+      expect(error).toBeInstanceOf(BraveTimeoutError);
+      expect((error as Error).message).toBe("Brave API timed out after 30000ms");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("replaces a malformed JSON body with a fixed message that never echoes the body", async () => {

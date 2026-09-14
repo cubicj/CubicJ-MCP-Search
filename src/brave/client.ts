@@ -1,5 +1,7 @@
+import type { CountryCode, SearchLanguage } from "./markets.js";
+
 const DEFAULT_BASE_URL = "https://api.search.brave.com/res/v1";
-const DEFAULT_TIMEOUT_MS = 15000;
+const DEFAULT_TIMEOUT_MS = 30000;
 
 export class BraveApiError extends Error {
   readonly status: number;
@@ -29,9 +31,10 @@ export interface LlmContextParams {
   query: string;
   maximum_number_of_urls?: number;
   maximum_number_of_tokens?: number;
+  maximum_number_of_tokens_per_url?: number;
   freshness?: string;
-  country?: string;
-  search_lang?: string;
+  country?: CountryCode;
+  search_lang?: SearchLanguage;
 }
 
 export interface BraveClient {
@@ -61,6 +64,7 @@ export function createBraveClient(options: BraveClientOptions): BraveClient {
       const optional: Array<[string, string | number | undefined]> = [
         ["maximum_number_of_urls", params.maximum_number_of_urls],
         ["maximum_number_of_tokens", params.maximum_number_of_tokens],
+        ["maximum_number_of_tokens_per_url", params.maximum_number_of_tokens_per_url],
         ["freshness", params.freshness],
         ["country", params.country],
         ["search_lang", params.search_lang],
@@ -69,7 +73,7 @@ export function createBraveClient(options: BraveClientOptions): BraveClient {
         if (value !== undefined) url.searchParams.set(key, String(value));
       }
       url.searchParams.set("context_threshold_mode", "balanced");
-      url.searchParams.set("enable_source_metadata", "true");
+      url.searchParams.set("spellcheck", "false");
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);

@@ -23,6 +23,8 @@ describe("createMcpServer", () => {
     const { client } = await connect({});
     expect(client.getServerVersion()).toMatchObject({ name: SERVER_NAME, version: SERVER_VERSION });
     expect(client.getInstructions()).toBe(SERVER_INSTRUCTIONS);
+    expect(SERVER_INSTRUCTIONS).toContain("site:");
+    expect(SERVER_INSTRUCTIONS).toContain("intitle:");
 
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name)).toEqual(["web_search", "fetch"]);
@@ -44,6 +46,7 @@ describe("createMcpServer", () => {
       query: "coffee",
       maximum_number_of_urls: 8,
       maximum_number_of_tokens: 8192,
+      maximum_number_of_tokens_per_url: 2048,
     });
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toEqual({

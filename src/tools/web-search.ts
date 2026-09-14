@@ -1,13 +1,19 @@
 import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { tokensPerUrl } from "../brave/budget.js";
 import { BraveApiError, type BraveClient, BraveRequestError, BraveTimeoutError } from "../brave/client.js";
+import { COUNTRY_CODES, type CountryCode, SEARCH_LANGUAGES, type SearchLanguage } from "../brave/markets.js";
 import { normalizeLlmContext } from "../brave/normalize.js";
+
+export const SEARCH_OPERATORS =
+  'site:, intitle:, inbody:, inpage:, filetype:/ext:, lang:, loc:, +term, -term, "exact phrase", uppercase AND/OR/NOT';
 
 export const webSearchDescription =
   "Search the web and get relevance-ranked page excerpts for each result, ready to read and cite. " +
   "First tool for any research, fact lookup, or URL discovery; most questions need one call and no follow-up fetch. " +
-  'Operators use a colon: site:example.com, "exact phrase", -excluded. ' +
+  `Search operators: ${SEARCH_OPERATORS}. Named operators use a colon (site:example.com). ` +
   "count sets how many source URLs (1-20, default 8); max_tokens caps the total excerpt size (1024-32768, default 8192); " +
+  "simple fact lookups use count 3-5 with max_tokens 2048; the defaults suit standard questions; deep research uses count 20 with max_tokens 16384. " +
   "freshness limits results by date (pd, pw, pm, py, or YYYY-MM-DDtoYYYY-MM-DD); country and search_lang scope the market. " +
   "Returns JSON: query, result_count, results[{title, url, site, age, snippets[]}].";
 
@@ -18,8 +24,8 @@ export const webSearchInputSchema = {
     .string()
     .optional()
     .describe("Date filter: pd (day), pw (week), pm (month), py (year), or YYYY-MM-DDtoYYYY-MM-DD"),
-  country: z.string().optional().describe("Two-letter country code, e.g. KR, US"),
-  search_lang: z.string().optional().describe("Search language code, e.g. ko, en"),
+  country: z.enum(COUNTRY_CODES).optional().describe("Search country, e.g. KR; ALL for all countries"),
+  search_lang: z.enum(SEARCH_LANGUAGES).optional().describe("Search language code, e.g. ko, en"),
   max_tokens: z.number().int().min(1024).max(32768).default(8192).describe("Cap on total excerpt tokens"),
 };
 
@@ -50,8 +56,8 @@ export interface WebSearchArgs {
   query: string;
   count: number;
   freshness?: string;
-  country?: string;
-  search_lang?: string;
+  country?: CountryCode;
+  search_lang?: SearchLanguage;
   max_tokens: number;
 }
 
@@ -74,6 +80,7 @@ export async function runWebSearch(client: BraveClient | undefined, args: WebSea
       query: args.query,
       maximum_number_of_urls: args.count,
       maximum_number_of_tokens: args.max_tokens,
+      maximum_number_of_tokens_per_url: tokensPerUrl(args.max_tokens, args.count),
       ...(args.freshness !== undefined ? { freshness: args.freshness } : {}),
       ...(args.country !== undefined ? { country: args.country } : {}),
       ...(args.search_lang !== undefined ? { search_lang: args.search_lang } : {}),

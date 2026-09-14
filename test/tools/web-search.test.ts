@@ -4,6 +4,7 @@ import { BraveApiError, type BraveClient, BraveRequestError, BraveTimeoutError }
 import {
   runWebSearch,
   webSearchAnnotations,
+  webSearchDescription,
   webSearchInputSchema,
   webSearchMeta,
   webSearchOutputSchema,
@@ -28,6 +29,20 @@ describe("web_search schema", () => {
     expect(schema.safeParse({ query: "x".repeat(401) }).success).toBe(false);
     expect(schema.safeParse({ query: "coffee", count: 21 }).success).toBe(false);
     expect(schema.safeParse({ query: "coffee", max_tokens: 1000 }).success).toBe(false);
+  });
+
+  test("validates country and language against the supported markets", () => {
+    const schema = z.object(webSearchInputSchema);
+    expect(schema.safeParse({ query: "coffee", country: "XX" }).success).toBe(false);
+    expect(schema.safeParse({ query: "coffee", search_lang: "xx" }).success).toBe(false);
+    expect(schema.safeParse({ query: "coffee", country: "KR", search_lang: "ko" }).success).toBe(true);
+    expect(schema.safeParse({ query: "coffee", country: "ALL" }).success).toBe(true);
+  });
+
+  test("describes search operators and research budgets", () => {
+    expect(webSearchDescription).toContain("intitle:");
+    expect(webSearchDescription).toContain("AND");
+    expect(webSearchDescription).toContain("16384");
   });
 
   test("declares the output shape and read-only annotations", () => {
@@ -61,6 +76,7 @@ describe("runWebSearch", () => {
       query: "site:example.com coffee",
       maximum_number_of_urls: 5,
       maximum_number_of_tokens: 4096,
+      maximum_number_of_tokens_per_url: 1640,
       freshness: "pm",
       country: "KR",
       search_lang: "ko",
@@ -90,6 +106,7 @@ describe("runWebSearch", () => {
       query: "coffee",
       maximum_number_of_urls: 8,
       maximum_number_of_tokens: 8192,
+      maximum_number_of_tokens_per_url: 2048,
     });
   });
 

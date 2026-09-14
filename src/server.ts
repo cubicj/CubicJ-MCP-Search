@@ -13,6 +13,7 @@ import {
 } from "./tools/fetch.js";
 import {
   runWebSearch,
+  SEARCH_OPERATORS,
   type WebSearchArgs,
   webSearchAnnotations,
   webSearchDescription,
@@ -31,7 +32,7 @@ export const SERVER_INSTRUCTIONS =
   "Use web_search first for any question about the public web: facts, current events, documentation, prices, or finding URLs; " +
   "it returns page excerpts per source, so read them before deciding whether a full fetch is needed. " +
   "Use fetch to read one specific URL in full: articles, docs, GitHub files and issues, PDFs, Korean communities (DCInside, Clien, Ruliweb, FMKorea, namu.wiki), Naver Blog, Bluesky. " +
-  "Page long content with start_index. Search operators use a colon (site:example.com).";
+  `Page long content with start_index. Search operators: ${SEARCH_OPERATORS}. Named operators use a colon (site:example.com).`;
 
 export type ToolObserver = (requestId: RequestId, outcome: string) => void;
 
