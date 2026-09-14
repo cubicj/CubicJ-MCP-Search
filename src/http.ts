@@ -1,10 +1,10 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { RequestId } from "@modelcontextprotocol/sdk/types.js";
+import { clip, printable } from "./log-text.js";
 import { createMcpServer, SERVER_NAME, SERVER_VERSION, type ServerDeps } from "./server.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
-const LABEL_MAX_CHARS = 200;
 
 class PayloadTooLargeError extends Error {
   constructor() {
@@ -12,15 +12,6 @@ class PayloadTooLargeError extends Error {
     this.name = "PayloadTooLargeError";
   }
 }
-
-const clip = (value: string): string =>
-  value.length > LABEL_MAX_CHARS ? `${value.slice(0, LABEL_MAX_CHARS)}…` : value;
-
-const printable = (value: string): string =>
-  Array.from(value, (char) => {
-    const code = char.charCodeAt(0);
-    return code < 0x20 || code === 0x7f ? "?" : char;
-  }).join("");
 
 export function describeRequest(message: unknown): string {
   const messages: unknown[] = Array.isArray(message) ? message : [message];
@@ -37,8 +28,14 @@ export function describeRequest(message: unknown): string {
       const parts = [`tools/call ${printable(params.name)}`];
       const args =
         "arguments" in params && params.arguments && typeof params.arguments === "object" ? params.arguments : {};
-      if ("query" in args && typeof args.query === "string") parts.push(`q=${JSON.stringify(clip(args.query))}`);
-      if ("url" in args && typeof args.url === "string") parts.push(`url=${JSON.stringify(clip(args.url))}`);
+      if ("query" in args && typeof args.query === "string")
+        parts.push(`q=${JSON.stringify(clip(printable(args.query)))}`);
+      if ("url" in args && typeof args.url === "string") parts.push(`url=${JSON.stringify(clip(printable(args.url)))}`);
+      for (const [key, value] of Object.entries(args)) {
+        if (key === "query" || key === "url") continue;
+        if (typeof value === "string") parts.push(`${printable(key)}=${JSON.stringify(clip(printable(value)))}`);
+        else if (typeof value === "number" || typeof value === "boolean") parts.push(`${printable(key)}=${value}`);
+      }
       return parts.join(" ");
     })
     .join(",");
@@ -123,7 +120,7 @@ async function handleMcpRequest(deps: ServerDeps, request: IncomingMessage, resp
     const body = await readBody(request);
     const requestIds = collectRequestIds(body);
     log.label = describeRequest(body);
-    log.outcomes = () => requestIds.flatMap((id) => (outcomes.has(id) ? [outcomes.get(id) as string] : []));
+    log.outcomes = () => requestIds.map((id) => outcomes.get(id) ?? "rejected");
     await server.connect(transport);
     await transport.handleRequest(request, response, body);
   } catch (error) {

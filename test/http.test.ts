@@ -2,6 +2,7 @@ import type { Server } from "node:http";
 import { connect } from "node:net";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { BraveClient } from "../src/brave/client.js";
+import * as registry from "../src/fetch/extractors/registry.js";
 import { createHttpServer, describeRequest } from "../src/http.js";
 import { SERVER_INSTRUCTIONS, SERVER_VERSION } from "../src/server.js";
 
@@ -66,6 +67,59 @@ describe("describeRequest", () => {
 
   test("joins batch entries with commas", () => {
     expect(describeRequest([{ method: "initialize" }, { method: "tools/list" }])).toBe("initialize,tools/list");
+  });
+
+  test("appends extra scalar arguments in client order after query and url", () => {
+    expect(
+      describeRequest({
+        method: "tools/call",
+        params: {
+          name: "web_search",
+          arguments: { count: 20, query: "coffee", max_tokens: 16384, freshness: "pw", country: "KR" },
+        },
+      }),
+    ).toBe('tools/call web_search q="coffee" count=20 max_tokens=16384 freshness="pw" country="KR"');
+    expect(
+      describeRequest({
+        method: "tools/call",
+        params: {
+          name: "fetch",
+          arguments: { start_index: 50000, url: "https://x", raw: true, max_length: 0, flag: false },
+        },
+      }),
+    ).toBe('tools/call fetch url="https://x" start_index=50000 raw=true max_length=0 flag=false');
+  });
+
+  test("skips objects, arrays, null, undefined, and duplicate query and url fields", () => {
+    expect(
+      describeRequest({
+        method: "tools/call",
+        params: {
+          name: "fetch",
+          arguments: {
+            query: "coffee",
+            url: "https://x",
+            object: { secret: "hidden" },
+            array: ["hidden"],
+            nil: null,
+            missing: undefined,
+            raw: true,
+          },
+        },
+      }),
+    ).toBe('tools/call fetch q="coffee" url="https://x" raw=true');
+  });
+
+  test("sanitizes argument keys and values and clips extra strings", () => {
+    expect(
+      describeRequest({
+        method: "tools/call",
+        params: {
+          name: "web_search",
+          arguments: { query: "cof\nfee", "bad\r\n\t\x7fkey": 'a"b\n', extra: "가".repeat(201) },
+        },
+      }),
+    ).toBe(`tools/call web_search q="cof?fee" bad????key="a\\"b?" extra="${"가".repeat(200)}…"`);
   });
 });
 
@@ -178,12 +232,81 @@ describe("createHttpServer", () => {
       jsonrpc: "2.0",
       id: 3,
       method: "tools/call",
-      params: { name: "web_search", arguments: { query: "coffee" } },
+      params: {
+        name: "web_search",
+        arguments: { query: "coffee", count: 20, max_tokens: 16384, freshness: "pw", country: "KR" },
+      },
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     const lines = spy.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith("Request tools/call web_search"));
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatch(/^Request tools\/call web_search q="coffee": \d+ms status=200 results=1$/);
+    expect(lines[0]).toMatch(
+      /^Request tools\/call web_search q="coffee" count=20 max_tokens=16384 freshness="pw" country="KR": \d+ms status=200 results=1 snippets=1 chars=5$/,
+    );
+    expect(lines[0]).not.toContain("First");
+  });
+
+  test("logs one line with the tool failure reason", async () => {
+    const port = await listen();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await rpc(port, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "web_search", arguments: { query: "coffee" } },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^Request tools\/call web_search q="coffee": \d+ms status=200 tool_error reason="web_search failed: BRAVE_API_KEY is not configured"$/,
+      ),
+    );
+  });
+
+  test("logs rejected when input validation stops the call before the handler", async () => {
+    const braveClient: BraveClient = { llmContext: vi.fn(async () => raw) };
+    const port = await listen({ braveClient });
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await rpc(port, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "web_search", arguments: { query: "coffee", country: "XX" } },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(braveClient.llmContext).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringMatching(/^Request tools\/call web_search q="coffee" country="XX": \d+ms status=200 rejected$/),
+    );
+  });
+
+  test("logs fetch arguments and outcome without the response body", async () => {
+    vi.spyOn(registry, "selectExtractor").mockReturnValue({
+      name: "defuddle",
+      matches: () => true,
+      extract: vi.fn(async () => ({
+        title: "Private title",
+        markdown: "Private response body",
+        metadata: {},
+        extractor: "defuddle",
+      })),
+    });
+    const port = await listen();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await rpc(port, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "fetch", arguments: { url: "https://x.example", start_index: 8, max_length: 8, raw: false } },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(spy).toHaveBeenCalledExactlyOnceWith(
+      expect.stringMatching(
+        /^Request tools\/call fetch url="https:\/\/x\.example" start_index=8 max_length=8 raw=false: \d+ms status=200 extractor=defuddle chars=8$/,
+      ),
+    );
   });
 });

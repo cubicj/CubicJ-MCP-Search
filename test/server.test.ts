@@ -1,8 +1,11 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { describe, expect, test, vi } from "vitest";
 import type { BraveClient } from "../src/brave/client.js";
+import * as fetchDocument from "../src/fetch/fetch.js";
 import { createMcpServer, SERVER_INSTRUCTIONS, SERVER_NAME, SERVER_VERSION, type ServerDeps } from "../src/server.js";
+import * as webSearch from "../src/tools/web-search.js";
 
 const raw = {
   grounding: { generic: [{ title: "Doc", url: "https://docs.example.com", snippets: ["First"] }] },
@@ -54,7 +57,7 @@ describe("createMcpServer", () => {
       result_count: 1,
       results: [{ title: "Doc", url: "https://docs.example.com", snippets: ["First"] }],
     });
-    expect(observer).toHaveBeenCalledWith(expect.anything(), "results=1");
+    expect(observer).toHaveBeenCalledWith(expect.anything(), "results=1 snippets=1 chars=5");
   });
 
   test("reports tool_error when web_search has no client", async () => {
@@ -64,7 +67,10 @@ describe("createMcpServer", () => {
     const result = await client.callTool({ name: "web_search", arguments: { query: "coffee" } });
 
     expect(result.isError).toBe(true);
-    expect(observer).toHaveBeenCalledWith(expect.anything(), "tool_error");
+    expect(observer).toHaveBeenCalledWith(
+      expect.anything(),
+      'tool_error reason="web_search failed: BRAVE_API_KEY is not configured"',
+    );
   });
 
   test("rejects invalid web_search arguments before calling Brave", async () => {
@@ -84,6 +90,84 @@ describe("createMcpServer", () => {
     const result = await client.callTool({ name: "fetch", arguments: { url: "http://127.0.0.1:9/" } });
 
     expect(result.isError).toBe(true);
-    expect(observer).toHaveBeenCalledWith(expect.anything(), "tool_error");
+    expect(observer).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringMatching(/^tool_error reason="Error fetching http:\/\/127\.0\.0\.1:9\/: /),
+    );
+  });
+
+  test("preserves token redaction in the fetch failure reason", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "test-token-for-log-redaction");
+    try {
+      vi.spyOn(fetchDocument, "fetchDocument").mockRejectedValueOnce(
+        new Error("failed with test-token-for-log-redaction"),
+      );
+      const observer = vi.fn();
+      const { client } = await connect({ observer });
+      await client.callTool({ name: "fetch", arguments: { url: "https://x.example", raw: true } });
+      expect(observer).toHaveBeenCalledExactlyOnceWith(
+        expect.anything(),
+        'tool_error reason="Error fetching https://x.example: failed with [REDACTED]"',
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test.each([
+    {
+      entries: [
+        { url: "https://one.example", snippets: ["First", "둘"] },
+        { url: "https://two.example", snippets: ["Third"] },
+        { url: "https://empty.example", snippets: [] },
+      ],
+      outcome: "results=3 snippets=3 chars=11",
+    },
+    { entries: [], outcome: "results=0 snippets=0 chars=0" },
+  ])("totals snippets across results: $outcome", async ({ entries, outcome }) => {
+    const braveClient: BraveClient = {
+      llmContext: vi.fn(async () => ({ grounding: { generic: entries }, sources: {} })),
+    };
+    const observer = vi.fn();
+    const { client } = await connect({ braveClient, observer });
+    await client.callTool({ name: "web_search", arguments: { query: "coffee" } });
+    expect(observer).toHaveBeenCalledExactlyOnceWith(expect.anything(), outcome);
+  });
+
+  test.each<{ name: string; result: CallToolResult; outcome: string }>([
+    { name: "missing structured content", result: { content: [] }, outcome: "results=?" },
+    {
+      name: "no text content",
+      result: { isError: true, content: [{ type: "image", data: "", mimeType: "image/png" }] },
+      outcome: "tool_error",
+    },
+    {
+      name: "empty text content",
+      result: { isError: true, content: [{ type: "text", text: "" }] },
+      outcome: 'tool_error reason=""',
+    },
+    {
+      name: "first text after non-text content",
+      result: {
+        isError: true,
+        content: [
+          { type: "image", data: "", mimeType: "image/png" },
+          { type: "text", text: 'bad\n"reason"\t' },
+          { type: "text", text: "ignored" },
+        ],
+      },
+      outcome: 'tool_error reason="bad?\\"reason\\"?"',
+    },
+    {
+      name: "long reason",
+      result: { isError: true, content: [{ type: "text", text: "가".repeat(201) }] },
+      outcome: `tool_error reason="${"가".repeat(200)}…"`,
+    },
+  ])("reports $name", async ({ result, outcome }) => {
+    vi.spyOn(webSearch, "runWebSearch").mockResolvedValueOnce(result);
+    const observer = vi.fn();
+    const { client } = await connect({ observer });
+    await client.callTool({ name: "web_search", arguments: { query: "coffee" } });
+    expect(observer).toHaveBeenCalledExactlyOnceWith(expect.anything(), outcome);
   });
 });

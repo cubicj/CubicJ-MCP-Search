@@ -2,6 +2,8 @@ import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult, RequestId } from "@modelcontextprotocol/sdk/types.js";
 import type { BraveClient } from "./brave/client.js";
+import type { WebSearchResult } from "./brave/normalize.js";
+import { clip, printable } from "./log-text.js";
 import {
   type FetchArgs,
   fetchAnnotations,
@@ -43,7 +45,15 @@ export interface ServerDeps {
 
 function webSearchOutcome(result: CallToolResult): string {
   const count = result.structuredContent?.result_count;
-  return typeof count === "number" ? `results=${count}` : "results=?";
+  if (typeof count !== "number") return "results=?";
+  const results = (result.structuredContent?.results ?? []) as WebSearchResult[];
+  let snippets = 0;
+  let chars = 0;
+  for (const entry of results) {
+    snippets += entry.snippets.length;
+    for (const snippet of entry.snippets) chars += snippet.length;
+  }
+  return `results=${count} snippets=${snippets} chars=${chars}`;
 }
 
 function fetchOutcome(result: CallToolResult): string {
@@ -57,7 +67,13 @@ export function createMcpServer(deps: ServerDeps = {}): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION }, { instructions: SERVER_INSTRUCTIONS });
 
   const observe = (requestId: RequestId, result: CallToolResult, outcome: (r: CallToolResult) => string): void => {
-    deps.observer?.(requestId, result.isError ? "tool_error" : outcome(result));
+    if (result.isError) {
+      const text = result.content.find((entry) => entry.type === "text");
+      const reason = text ? ` reason=${JSON.stringify(clip(printable(text.text)))}` : "";
+      deps.observer?.(requestId, `tool_error${reason}`);
+    } else {
+      deps.observer?.(requestId, outcome(result));
+    }
   };
 
   server.registerTool(
