@@ -46,7 +46,7 @@ describe("createBraveClient", () => {
       freshness: "pw",
       country: "KR",
       search_lang: "ko",
-      context_threshold_mode: "balanced",
+      context_threshold_mode: "lenient",
       spellcheck: "false",
     });
     expect(init.method).toBe("GET");
@@ -66,7 +66,7 @@ describe("createBraveClient", () => {
     const parsed = new URL(String(fetchMock.mock.calls[0][0]));
     expect(Object.fromEntries(parsed.searchParams)).toEqual({
       q: "coffee",
-      context_threshold_mode: "balanced",
+      context_threshold_mode: "lenient",
       spellcheck: "false",
     });
   });

@@ -3,8 +3,10 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { describe, expect, test, vi } from "vitest";
 import type { BraveClient } from "../src/brave/client.js";
+import { NO_CONTENT_NOTICE } from "../src/fetch/extractors/generic.js";
 import * as fetchDocument from "../src/fetch/fetch.js";
 import { createMcpServer, SERVER_INSTRUCTIONS, SERVER_NAME, SERVER_VERSION, type ServerDeps } from "../src/server.js";
+import * as fetchTool from "../src/tools/fetch.js";
 import * as webSearch from "../src/tools/web-search.js";
 
 const raw = {
@@ -60,6 +62,27 @@ describe("createMcpServer", () => {
     expect(observer).toHaveBeenCalledWith(expect.anything(), "results=1 snippets=1 chars=5");
   });
 
+  test("tells callers how to handle low search result counts", async () => {
+    const { client } = await connect({});
+    const { tools } = await client.listTools();
+    const description = tools.find((tool) => tool.name === "web_search")?.description;
+    expect(description).toContain("count is an upper bound on source URLs (1-20, default 8), not a guarantee");
+    expect(description).toContain("Brave returns only sources that pass its relevance threshold");
+    expect(description).toContain(
+      "If a site:-restricted search returns 2 or fewer results, drop site: and search again, or fetch the site's own listing or search page instead of rephrasing the same site: query.",
+    );
+  });
+
+  test("directs raw fetches to data endpoints instead of empty-page retries", async () => {
+    const { client } = await connect({});
+    const { tools } = await client.listTools();
+    const description = tools.find((tool) => tool.name === "fetch")?.description;
+    expect(description).toContain("raw=true skips extraction and returns the decoded response text");
+    expect(description).toContain(
+      "use it for JSON, text, or script endpoints, not pages that returned the empty-content notice",
+    );
+  });
+
   test("reports tool_error when web_search has no client", async () => {
     const observer = vi.fn();
     const { client } = await connect({ observer });
@@ -112,6 +135,56 @@ describe("createMcpServer", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  test.each([
+    {
+      name: "successful extraction",
+      structuredContent: { extractor: "defuddle", content: "Hello", metadata: { status: 200 } },
+      outcome: "extractor=defuddle http=200 chars=5",
+    },
+    {
+      name: "404 page",
+      structuredContent: { extractor: "defuddle", content: "Not found", metadata: { status: 404 } },
+      outcome: "extractor=defuddle http=404 chars=9",
+    },
+    {
+      name: "empty-page notice",
+      structuredContent: { extractor: "defuddle", content: NO_CONTENT_NOTICE, metadata: { status: 200 } },
+      outcome: `extractor=defuddle http=200 chars=${NO_CONTENT_NOTICE.length} notice`,
+    },
+    {
+      name: "notice embedded in real content",
+      structuredContent: { extractor: "defuddle", content: `Quoted: ${NO_CONTENT_NOTICE}` },
+      outcome: `extractor=defuddle chars=${NO_CONTENT_NOTICE.length + 8}`,
+    },
+    {
+      name: "raw response without metadata",
+      structuredContent: { content: "x".repeat(30000) },
+      outcome: "extractor=raw chars=30000",
+    },
+    {
+      name: "metadata without status",
+      structuredContent: { extractor: "defuddle", content: "Hello", metadata: {} },
+      outcome: "extractor=defuddle chars=5",
+    },
+    {
+      name: "non-numeric status",
+      structuredContent: { extractor: "defuddle", content: "Hello", metadata: { status: "200" } },
+      outcome: "extractor=defuddle chars=5",
+    },
+    {
+      name: "zero status",
+      structuredContent: { extractor: "defuddle", content: "", metadata: { status: 0 } },
+      outcome: "extractor=defuddle http=0 chars=0",
+    },
+    { name: "missing structured content", structuredContent: undefined, outcome: "extractor=raw chars=0" },
+  ])("reports fetch outcome for $name", async ({ structuredContent, outcome }) => {
+    vi.spyOn(fetchTool, "runFetch").mockResolvedValueOnce({ content: [], structuredContent });
+    const observer = vi.fn();
+    const { client } = await connect({ observer });
+    await client.callTool({ name: "fetch", arguments: { url: "https://x.example" } });
+    expect(observer).toHaveBeenCalledExactlyOnceWith(expect.anything(), outcome);
   });
 
   test.each([

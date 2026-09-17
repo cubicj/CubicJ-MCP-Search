@@ -2,6 +2,7 @@ import type { Server } from "node:http";
 import { connect } from "node:net";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { BraveClient } from "../src/brave/client.js";
+import { NO_CONTENT_NOTICE } from "../src/fetch/extractors/generic.js";
 import * as registry from "../src/fetch/extractors/registry.js";
 import { createHttpServer, describeRequest } from "../src/http.js";
 import { SERVER_INSTRUCTIONS, SERVER_VERSION } from "../src/server.js";
@@ -290,7 +291,7 @@ describe("createHttpServer", () => {
       extract: vi.fn(async () => ({
         title: "Private title",
         markdown: "Private response body",
-        metadata: {},
+        metadata: { status: 200 },
         extractor: "defuddle",
       })),
     });
@@ -305,7 +306,34 @@ describe("createHttpServer", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(spy).toHaveBeenCalledExactlyOnceWith(
       expect.stringMatching(
-        /^Request tools\/call fetch url="https:\/\/x\.example" start_index=8 max_length=8 raw=false: \d+ms status=200 extractor=defuddle chars=8$/,
+        /^Request tools\/call fetch url="https:\/\/x\.example" start_index=8 max_length=8 raw=false: \d+ms status=200 extractor=defuddle http=200 chars=8$/,
+      ),
+    );
+  });
+
+  test.each([
+    { status: 404, markdown: "Not found", outcome: "http=404 chars=9" },
+    { status: 200, markdown: NO_CONTENT_NOTICE, outcome: `http=200 chars=${NO_CONTENT_NOTICE.length} notice` },
+  ])("logs the upstream fetch outcome: $outcome", async ({ status, markdown, outcome }) => {
+    vi.spyOn(registry, "selectExtractor").mockReturnValue({
+      name: "defuddle",
+      matches: () => true,
+      extract: vi.fn(async () => ({ title: "Page", markdown, metadata: { status }, extractor: "defuddle" })),
+    });
+    const port = await listen();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await rpc(port, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "fetch", arguments: { url: "https://x.example" } },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(spy).toHaveBeenCalledExactlyOnceWith(
+      expect.stringMatching(
+        new RegExp(
+          `^Request tools/call fetch url="https://x\\.example": \\d+ms status=200 extractor=defuddle ${outcome}$`,
+        ),
       ),
     );
   });

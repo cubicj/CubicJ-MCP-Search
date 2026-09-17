@@ -10,7 +10,7 @@ export const fetchDescription =
   "Site-specific extractors return post body plus comments for gall.dcinside.com, Clien, Ruliweb, and FMKorea; body only for blog.naver.com and namu.wiki; " +
   "threads with replies and profiles with recent posts for bsky.app; raw content or REST data for github.com files, repos, issues, pull requests, and gists. " +
   "Non-HTML text (JSON, XML, RSS, plain text) is returned as-is; PDFs as page-separated text with page_count; image-only PDFs return a notice; other binaries are errors. " +
-  "raw=true skips extraction and returns the decoded response text. " +
+  "raw=true skips extraction and returns the decoded response text; use it for JSON, text, or script endpoints, not pages that returned the empty-content notice. " +
   "Long content is paginated: content is sliced from start_index (default 0) for max_length characters (default 50000); " +
   "to continue, call again with start_index advanced by the previous max_length and stop when start_index + max_length >= total_length. " +
   "Bot-protection pages return an error; empty pages that need JavaScript or a login return a notice.";

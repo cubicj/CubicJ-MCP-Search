@@ -72,7 +72,7 @@ export function createBraveClient(options: BraveClientOptions): BraveClient {
       for (const [key, value] of optional) {
         if (value !== undefined) url.searchParams.set(key, String(value));
       }
-      url.searchParams.set("context_threshold_mode", "balanced");
+      url.searchParams.set("context_threshold_mode", "lenient");
       url.searchParams.set("spellcheck", "false");
 
       const controller = new AbortController();

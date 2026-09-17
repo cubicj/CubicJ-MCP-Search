@@ -5,7 +5,7 @@ import { extractPdf, isPdf } from "./pdf.js";
 import type { Extractor, FetchMetadata } from "./types.js";
 
 export const NO_CONTENT_NOTICE =
-  "[No readable content was extracted. The page may require JavaScript rendering or a login. Retry with raw: true to inspect the response.]";
+  "[No readable content was extracted. The page may require JavaScript rendering or a login. raw=true returns the same JavaScript shell; try a different URL.]";
 
 const CHALLENGE_TITLES = [/^just a moment/i, /attention required!?\s*\|\s*cloudflare/i, /^access denied/i];
 

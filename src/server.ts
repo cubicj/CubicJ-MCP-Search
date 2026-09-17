@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult, RequestId } from "@modelcontextprotocol/sdk/types.js";
 import type { BraveClient } from "./brave/client.js";
 import type { WebSearchResult } from "./brave/normalize.js";
+import { NO_CONTENT_NOTICE } from "./fetch/extractors/generic.js";
 import { clip, printable } from "./log-text.js";
 import {
   type FetchArgs,
@@ -59,8 +60,11 @@ function webSearchOutcome(result: CallToolResult): string {
 function fetchOutcome(result: CallToolResult): string {
   const sc = result.structuredContent ?? {};
   const extractor = typeof sc.extractor === "string" ? sc.extractor : "raw";
+  const status = (sc.metadata as { status?: unknown } | undefined)?.status;
+  const http = typeof status === "number" ? ` http=${status}` : "";
   const chars = typeof sc.content === "string" ? sc.content.length : 0;
-  return `extractor=${extractor} chars=${chars}`;
+  const notice = sc.content === NO_CONTENT_NOTICE ? " notice" : "";
+  return `extractor=${extractor}${http} chars=${chars}${notice}`;
 }
 
 export function createMcpServer(deps: ServerDeps = {}): McpServer {

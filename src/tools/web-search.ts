@@ -12,7 +12,9 @@ export const webSearchDescription =
   "Search the web and get relevance-ranked page excerpts for each result, ready to read and cite. " +
   "First tool for any research, fact lookup, or URL discovery; most questions need one call and no follow-up fetch. " +
   `Search operators: ${SEARCH_OPERATORS}. Named operators use a colon (site:example.com). ` +
-  "count sets how many source URLs (1-20, default 8); max_tokens caps the total excerpt size (1024-32768, default 8192); " +
+  "count is an upper bound on source URLs (1-20, default 8), not a guarantee: Brave returns only sources that pass its relevance threshold. " +
+  "If a site:-restricted search returns 2 or fewer results, drop site: and search again, or fetch the site's own listing or search page instead of rephrasing the same site: query. " +
+  "max_tokens caps the total excerpt size (1024-32768, default 8192); " +
   "simple fact lookups use count 3-5 with max_tokens 2048; the defaults suit standard questions; deep research uses count 20 with max_tokens 16384. " +
   "freshness limits results by date (pd, pw, pm, py, or YYYY-MM-DDtoYYYY-MM-DD); country and search_lang scope the market. " +
   "Returns JSON: query, result_count, results[{title, url, site, age, snippets[]}].";

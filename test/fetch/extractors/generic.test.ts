@@ -148,12 +148,15 @@ test("bot-protection challenge pages are errors", async () => {
   );
 });
 
-test("empty pages explain JavaScript rendering", async () => {
+test("empty pages direct callers to another URL instead of a raw retry", async () => {
   const result = await genericExtractor.extract(`${baseUrl}/empty`);
   assert.equal(result.extractor, "defuddle");
   assert.equal(result.title, "Empty Page");
   assert.equal(result.markdown, NO_CONTENT_NOTICE);
   assert.match(result.markdown, /JavaScript rendering or a login/);
+  assert.match(result.markdown, /raw=true returns the same JavaScript shell; try a different URL\./);
+  assert.match(result.markdown, /^\[[^\r\n]+\]$/);
+  assert.doesNotMatch(result.markdown, /Retry with raw/);
 });
 
 test("genericExtractor includes final_url only after a redirect", async () => {
