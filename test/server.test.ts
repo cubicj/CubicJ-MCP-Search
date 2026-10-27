@@ -1,6 +1,4 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { type CallToolResult, Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { describe, expect, test, vi } from "vitest";
 import type { BraveClient } from "../src/brave/client.js";
 import { NO_CONTENT_NOTICE } from "../src/fetch/extractors/generic.js";

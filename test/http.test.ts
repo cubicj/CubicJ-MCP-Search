@@ -1,5 +1,7 @@
 import type { Server } from "node:http";
 import { connect } from "node:net";
+import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
+import { McpServer } from "@modelcontextprotocol/server";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { BraveClient } from "../src/brave/client.js";
 import { NO_CONTENT_NOTICE } from "../src/fetch/extractors/generic.js";
@@ -125,6 +127,108 @@ describe("describeRequest", () => {
 });
 
 describe("createHttpServer", () => {
+  test("closes transport and server exactly once when the client disconnects mid-request", async () => {
+    const started = Promise.withResolvers<void>();
+    const pending = Promise.withResolvers<typeof raw>();
+    const braveClient: BraveClient = {
+      llmContext: vi.fn(() => {
+        started.resolve();
+        return pending.promise;
+      }),
+    };
+    const transportClose = vi.spyOn(NodeStreamableHTTPServerTransport.prototype, "close");
+    const serverClose = vi.spyOn(McpServer.prototype, "close");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const port = await listen({ braveClient });
+    const controller = new AbortController();
+    const response = fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: "POST",
+      headers: { accept: "application/json, text/event-stream", "content-type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "disconnect",
+        method: "tools/call",
+        params: { name: "web_search", arguments: { query: "coffee" } },
+      }),
+    }).catch((error: unknown) => error);
+    try {
+      await started.promise;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(transportClose).not.toHaveBeenCalled();
+      expect(serverClose).not.toHaveBeenCalled();
+      controller.abort();
+      await response;
+      await vi.waitFor(() => {
+        expect(transportClose).toHaveBeenCalledTimes(1);
+        expect(serverClose).toHaveBeenCalledTimes(1);
+      });
+      expect(log).toHaveBeenCalledExactlyOnceWith(
+        expect.stringMatching(/^Request tools\/call web_search q="coffee": \d+ms aborted status=200 rejected$/),
+      );
+      pending.resolve(raw);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(transportClose).toHaveBeenCalledTimes(1);
+      expect(serverClose).toHaveBeenCalledTimes(1);
+      expect(log).toHaveBeenCalledTimes(1);
+    } finally {
+      controller.abort();
+      pending.resolve(raw);
+      await response;
+    }
+  });
+
+  test("returns the existing JSON-RPC error and closes once when handling throws before writing", async () => {
+    vi.spyOn(NodeStreamableHTTPServerTransport.prototype, "handleRequest").mockRejectedValueOnce(
+      new Error("handler failed"),
+    );
+    const transportClose = vi.spyOn(NodeStreamableHTTPServerTransport.prototype, "close");
+    const serverClose = vi.spyOn(McpServer.prototype, "close");
+    const port = await listen();
+    const response = await rpc(port, { jsonrpc: "2.0", id: 1, method: "tools/list" });
+    expect(response.status).toBe(500);
+    expect(response.headers.get("content-type")).toBe("application/json");
+    expect(await response.json()).toEqual({
+      jsonrpc: "2.0",
+      error: { code: -32603, message: "handler failed" },
+      id: null,
+    });
+    await vi.waitFor(() => {
+      expect(transportClose).toHaveBeenCalledTimes(1);
+      expect(serverClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test.each(["2025-06-18", "2025-11-25"])(
+    "preserves JSON responses and notification acceptance for %s",
+    async (protocolVersion) => {
+      const port = await listen();
+      const headers = { "mcp-protocol-version": protocolVersion };
+      const init = await rpc(
+        port,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: { protocolVersion, capabilities: {}, clientInfo: { name: "parity", version: "1" } },
+        },
+        headers,
+      );
+      expect(init.status).toBe(200);
+      expect(init.headers.get("content-type")).toBe("application/json");
+      expect((await init.json()).result.protocolVersion).toBe(protocolVersion);
+      const initialized = await rpc(port, { jsonrpc: "2.0", method: "notifications/initialized" }, headers);
+      expect(initialized.status).toBe(202);
+      const list = await rpc(port, { jsonrpc: "2.0", id: 2, method: "tools/list" }, headers);
+      expect(list.status).toBe(200);
+      expect(list.headers.get("content-type")).toBe("application/json");
+      expect((await list.json()).result.tools.map((tool: { name: string }) => tool.name)).toEqual([
+        "web_search",
+        "fetch",
+      ]);
+    },
+  );
+
   test("returns 400 for a malformed request target", async () => {
     const port = await listen();
     const socket = connect(port, "127.0.0.1");

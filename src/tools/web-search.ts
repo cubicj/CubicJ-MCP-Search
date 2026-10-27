@@ -1,4 +1,4 @@
-import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { tokensPerUrl } from "../brave/budget.js";
 import { BraveApiError, type BraveClient, BraveRequestError, BraveTimeoutError } from "../brave/client.js";

@@ -1,4 +1,4 @@
-import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { buildMarkdownText, buildRawText, paginate } from "../fetch/content.js";
 import { selectExtractor } from "../fetch/extractors/registry.js";

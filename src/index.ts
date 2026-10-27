@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { createBraveClient } from "./brave/client.js";
 import { readConfig } from "./config.js";
 import { startHttpServer } from "./http.js";
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  await createMcpServer(deps).connect(new StdioServerTransport());
+  serveStdio(() => createMcpServer(deps));
 }
 
 main().catch((error) => {

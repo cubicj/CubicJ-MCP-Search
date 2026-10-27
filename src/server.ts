@@ -1,6 +1,5 @@
 import { createRequire } from "node:module";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult, RequestId } from "@modelcontextprotocol/sdk/types.js";
+import { type CallToolResult, McpServer, type RequestId } from "@modelcontextprotocol/server";
 import type { BraveClient } from "./brave/client.js";
 import type { WebSearchResult } from "./brave/normalize.js";
 import { NO_CONTENT_NOTICE } from "./fetch/extractors/generic.js";
@@ -45,9 +44,10 @@ export interface ServerDeps {
 }
 
 function webSearchOutcome(result: CallToolResult): string {
-  const count = result.structuredContent?.result_count;
+  const sc = result.structuredContent as Record<string, unknown> | undefined;
+  const count = sc?.result_count;
   if (typeof count !== "number") return "results=?";
-  const results = (result.structuredContent?.results ?? []) as WebSearchResult[];
+  const results = (sc?.results ?? []) as WebSearchResult[];
   let snippets = 0;
   let chars = 0;
   for (const entry of results) {
@@ -58,7 +58,7 @@ function webSearchOutcome(result: CallToolResult): string {
 }
 
 function fetchOutcome(result: CallToolResult): string {
-  const sc = result.structuredContent ?? {};
+  const sc = (result.structuredContent ?? {}) as Record<string, unknown>;
   const extractor = typeof sc.extractor === "string" ? sc.extractor : "raw";
   const status = (sc.metadata as { status?: unknown } | undefined)?.status;
   const http = typeof status === "number" ? ` http=${status}` : "";
@@ -92,7 +92,7 @@ export function createMcpServer(deps: ServerDeps = {}): McpServer {
     },
     async (args, extra) => {
       const result = await runWebSearch(deps.braveClient, args as WebSearchArgs);
-      observe(extra.requestId, result, webSearchOutcome);
+      observe(extra.mcpReq.id, result, webSearchOutcome);
       return result;
     },
   );
@@ -109,7 +109,7 @@ export function createMcpServer(deps: ServerDeps = {}): McpServer {
     },
     async (args, extra) => {
       const result = await runFetch(args as FetchArgs);
-      observe(extra.requestId, result, fetchOutcome);
+      observe(extra.mcpReq.id, result, fetchOutcome);
       return result;
     },
   );

@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { RequestId } from "@modelcontextprotocol/sdk/types.js";
+import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
+import type { RequestId } from "@modelcontextprotocol/server";
 import { clip, printable } from "./log-text.js";
 import { createMcpServer, SERVER_NAME, SERVER_VERSION, type ServerDeps } from "./server.js";
 
@@ -112,26 +112,52 @@ async function handleMcpRequest(deps: ServerDeps, request: IncomingMessage, resp
     return;
   }
 
-  const outcomes = new Map<RequestId, string>();
-  const server = createMcpServer({ ...deps, observer: (id, outcome) => outcomes.set(id, outcome) });
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-
   try {
     const body = await readBody(request);
-    const requestIds = collectRequestIds(body);
-    log.label = describeRequest(body);
-    log.outcomes = () => requestIds.map((id) => outcomes.get(id) ?? "rejected");
-    await server.connect(transport);
-    await transport.handleRequest(request, response, body);
+    await serveLegacy(deps, request, response, body, log);
   } catch (error) {
     if (!response.headersSent) {
       if (error instanceof PayloadTooLargeError) sendJson(response, 413, rpcError(-32600, error.message));
       else if (error instanceof SyntaxError) sendJson(response, 400, rpcError(-32700, "Parse error"));
       else sendJson(response, 500, rpcError(-32603, error instanceof Error ? error.message : "Internal server error"));
     }
-  } finally {
-    await transport.close();
-    await server.close();
+  }
+}
+
+export async function serveLegacy(
+  deps: ServerDeps,
+  request: IncomingMessage,
+  response: ServerResponse,
+  body: unknown,
+  log: RequestLog,
+): Promise<void> {
+  if (response.destroyed) return;
+  const outcomes = new Map<RequestId, string>();
+  const server = createMcpServer({ ...deps, observer: (id, outcome) => outcomes.set(id, outcome) });
+  const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+  const requestIds = collectRequestIds(body);
+  log.label = describeRequest(body);
+  log.outcomes = () => requestIds.map((id) => outcomes.get(id) ?? "rejected");
+
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closing ??= (async () => {
+      try {
+        await transport.close();
+      } finally {
+        await server.close();
+      }
+    })();
+    return closing;
+  };
+  response.once("close", () => void close());
+
+  try {
+    await server.connect(transport);
+    await transport.handleRequest(request, response, body);
+  } catch (error) {
+    await close();
+    throw error;
   }
 }
 
