@@ -48,7 +48,7 @@ describe("fetch schema", () => {
     });
     expect(z.object(fetchInputSchema).safeParse({ url: "not a url" }).success).toBe(false);
     expect(fetchAnnotations.readOnlyHint).toBe(true);
-    expect(fetchMeta).toEqual({ "anthropic/maxResultSizeChars": 200000 });
+    expect(fetchMeta).toEqual({ "anthropic/maxResultSizeChars": 500000 });
   });
 });
 

@@ -68,7 +68,16 @@ function fetchOutcome(result: CallToolResult): string {
 }
 
 export function createMcpServer(deps: ServerDeps = {}): McpServer {
-  const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION }, { instructions: SERVER_INSTRUCTIONS });
+  const server = new McpServer(
+    { name: SERVER_NAME, version: SERVER_VERSION },
+    {
+      instructions: SERVER_INSTRUCTIONS,
+      cacheHints: {
+        "server/discover": { ttlMs: 3600000, cacheScope: "public" },
+        "tools/list": { ttlMs: 3600000, cacheScope: "public" },
+      },
+    },
+  );
 
   const observe = (requestId: RequestId, result: CallToolResult, outcome: (r: CallToolResult) => string): void => {
     if (result.isError) {

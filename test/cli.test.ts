@@ -111,7 +111,7 @@ test("HTTP transport exposes a health endpoint", async () => {
   try {
     const response = await waitForHealth(port);
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { status: "ok", service: "cubicj-mcp-search", version: "0.1.0" });
+    assert.deepEqual(await response.json(), { status: "ok", service: "cubicj-mcp-search", version: "0.2.0" });
 
     const headResponse = await fetch(`http://127.0.0.1:${port}/health`, { method: "HEAD" });
     assert.equal(headResponse.status, 200);
@@ -561,7 +561,7 @@ test("HTTP transport exposes MCP metadata and structured fetch results", async (
     assert.equal(fetchTool.annotations.destructiveHint, false);
     assert.equal(fetchTool.annotations.idempotentHint, true);
     assert.equal(fetchTool.annotations.openWorldHint, true);
-    assert.equal(fetchTool._meta["anthropic/maxResultSizeChars"], 200000);
+    assert.equal(fetchTool._meta["anthropic/maxResultSizeChars"], 500000);
     assert.match(fetchTool.description, /^Fetch one URL and return its readable content as markdown/);
     assert.ok(Buffer.byteLength(fetchTool.description, "utf8") < 2048);
     assert.equal(fetchTool.outputSchema.type, "object");

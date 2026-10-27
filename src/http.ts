@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
-import type { RequestId } from "@modelcontextprotocol/server";
+import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from "@modelcontextprotocol/node";
+import { createMcpHandler, isLegacyRequest, type RequestId } from "@modelcontextprotocol/server";
 import { clip, printable } from "./log-text.js";
 import { createMcpServer, SERVER_NAME, SERVER_VERSION, type ServerDeps } from "./server.js";
 
@@ -44,6 +44,8 @@ export function describeRequest(message: unknown): string {
 interface RequestLog {
   label: string;
   outcomes: () => string[];
+  era?: "2026" | "2025";
+  client?: string;
 }
 
 function attachRequestLog(response: ServerResponse): RequestLog {
@@ -56,7 +58,8 @@ function attachRequestLog(response: ServerResponse): RequestLog {
       : `aborted status=${response.statusCode}`;
     const outcomes = log.outcomes();
     const suffix = outcomes.length > 0 ? ` ${outcomes.join(",")}` : "";
-    console.error(`Request ${log.label}: ${ms}ms ${status}${suffix}`);
+    const routing = log.era === undefined ? "" : ` era=${log.era} client=${JSON.stringify(log.client)}`;
+    console.error(`Request ${log.label}: ${ms}ms ${status}${routing}${suffix}`);
   });
   return log;
 }
@@ -114,13 +117,49 @@ async function handleMcpRequest(deps: ServerDeps, request: IncomingMessage, resp
 
   try {
     const body = await readBody(request);
-    await serveLegacy(deps, request, response, body, log);
+    const legacy = await isLegacyRequest(await toWebRequest(request, body), body);
+    log.era = legacy ? "2025" : "2026";
+    log.client = clip(printable(request.headers["user-agent"] ?? "-"));
+    if (legacy) await serveLegacy(deps, request, response, body, log);
+    else await serveModern(deps, request, response, body, log);
   } catch (error) {
     if (!response.headersSent) {
       if (error instanceof PayloadTooLargeError) sendJson(response, 413, rpcError(-32600, error.message));
       else if (error instanceof SyntaxError) sendJson(response, 400, rpcError(-32700, "Parse error"));
       else sendJson(response, 500, rpcError(-32603, error instanceof Error ? error.message : "Internal server error"));
     }
+  }
+}
+
+async function serveModern(
+  deps: ServerDeps,
+  request: IncomingMessage,
+  response: ServerResponse,
+  body: unknown,
+  log: RequestLog,
+): Promise<void> {
+  if (response.destroyed) return;
+  const outcomes = new Map<RequestId, string>();
+  const handler = createMcpHandler(
+    () => createMcpServer({ ...deps, observer: (id, outcome) => outcomes.set(id, outcome) }),
+    { legacy: "reject" },
+  );
+  const requestIds = collectRequestIds(body);
+  log.label = describeRequest(body);
+  log.outcomes = () => requestIds.map((id) => outcomes.get(id) ?? "rejected");
+
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closing ??= handler.close();
+    return closing;
+  };
+  response.once("close", () => void close());
+
+  try {
+    await toNodeHandler(handler)(request, response, body);
+  } catch (error) {
+    await close();
+    throw error;
   }
 }
 

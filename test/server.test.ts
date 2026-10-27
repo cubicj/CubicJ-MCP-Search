@@ -33,7 +33,7 @@ describe("createMcpServer", () => {
     expect(tools.map((tool) => tool.name)).toEqual(["web_search", "fetch"]);
     for (const tool of tools) {
       expect(tool.annotations).toMatchObject({ readOnlyHint: true, openWorldHint: true });
-      expect(tool._meta).toEqual({ "anthropic/maxResultSizeChars": 200000 });
+      expect(tool._meta).toEqual({ "anthropic/maxResultSizeChars": tool.name === "fetch" ? 500000 : 200000 });
       expect(tool.outputSchema).toBeDefined();
     }
   });

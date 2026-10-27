@@ -1,6 +1,6 @@
 {
   "name": "cubicj-mcp-search",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server with two read-only tools: web_search (Brave LLM Context) and fetch (Defuddle extraction)",
   "license": "MIT",
   "type": "module",

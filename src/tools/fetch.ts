@@ -22,7 +22,7 @@ export const fetchAnnotations = {
   openWorldHint: true,
 } satisfies ToolAnnotations;
 
-export const fetchMeta = { "anthropic/maxResultSizeChars": 200000 } as const;
+export const fetchMeta = { "anthropic/maxResultSizeChars": 500000 } as const;
 
 export const fetchInputSchema = {
   url: z.url().describe("URL to fetch"),

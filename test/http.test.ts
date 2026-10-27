@@ -1,4 +1,4 @@
-import type { Server } from "node:http";
+import { request as nodeRequest, type Server } from "node:http";
 import { connect } from "node:net";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { McpServer } from "@modelcontextprotocol/server";
@@ -7,7 +7,7 @@ import type { BraveClient } from "../src/brave/client.js";
 import { NO_CONTENT_NOTICE } from "../src/fetch/extractors/generic.js";
 import * as registry from "../src/fetch/extractors/registry.js";
 import { createHttpServer, describeRequest } from "../src/http.js";
-import { SERVER_INSTRUCTIONS, SERVER_VERSION } from "../src/server.js";
+import { SERVER_INSTRUCTIONS } from "../src/server.js";
 
 const raw = {
   grounding: { generic: [{ title: "Doc", url: "https://docs.example.com", snippets: ["First"] }] },
@@ -37,6 +37,36 @@ const rpc = async (port: number, body: unknown, headers: Record<string, string> 
     headers: { accept: "application/json, text/event-stream", "content-type": "application/json", ...headers },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
+
+const modernRpc = (
+  port: number,
+  method: string,
+  params: Record<string, unknown> = {},
+  id: string | number = 1,
+  headers: Record<string, string> = {},
+) =>
+  rpc(
+    port,
+    {
+      jsonrpc: "2.0",
+      id,
+      method,
+      params: {
+        ...params,
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": { name: "http-test", version: "1" },
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    },
+    {
+      "mcp-protocol-version": "2026-07-28",
+      "mcp-method": method,
+      ...(typeof params.name === "string" ? { "mcp-name": params.name } : {}),
+      ...headers,
+    },
+  );
 
 describe("describeRequest", () => {
   test("replaces control characters in method and tool names so a label is one line", () => {
@@ -127,6 +157,186 @@ describe("describeRequest", () => {
 });
 
 describe("createHttpServer", () => {
+  test("serves modern discover with public one-hour cache hints", async () => {
+    const port = await listen();
+    const response = await modernRpc(port, "server/discover");
+    expect(response.status).toBe(200);
+    const { result } = await response.json();
+    expect(result.supportedVersions).toEqual(["2026-07-28"]);
+    expect(result._meta["io.modelcontextprotocol/serverInfo"]).toMatchObject({
+      name: "cubicj-mcp-search",
+      version: "0.2.0",
+    });
+    expect(result.instructions).toBe(SERVER_INSTRUCTIONS);
+    expect(result).toMatchObject({ ttlMs: 3600000, cacheScope: "public" });
+  });
+
+  test("lists modern tools without a handshake with public one-hour cache hints", async () => {
+    const port = await listen();
+    const response = await modernRpc(port, "tools/list");
+    expect(response.status).toBe(200);
+    const { result } = await response.json();
+    expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual(["web_search", "fetch"]);
+    expect(result).toMatchObject({ ttlMs: 3600000, cacheScope: "public" });
+  });
+
+  test("routes malformed JSON-RPC objects to the modern rejection", async () => {
+    const port = await listen();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await rpc(port, {});
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      jsonrpc: "2.0",
+      error: { code: -32600, message: "Bad Request: the request body is not a valid JSON-RPC message" },
+      id: null,
+    });
+    await vi.waitFor(() =>
+      expect(spy).toHaveBeenCalledExactlyOnceWith(
+        expect.stringMatching(/^Request unknown: \d+ms status=400 era=2026 client="node"$/),
+      ),
+    );
+  });
+
+  test.each(["2025", "2026"])("logs the routed era %s and a sanitized, clipped User-Agent", async (era) => {
+    const port = await listen();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const headers = { "user-agent": `agent\t${"x".repeat(294)}` };
+    const response =
+      era === "2026"
+        ? await modernRpc(port, "tools/list", {}, 1, headers)
+        : await rpc(port, { jsonrpc: "2.0", id: 1, method: "tools/list" }, headers);
+    expect(response.status).toBe(200);
+    await response.text();
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(String(spy.mock.calls[0][0]).replace(/\d+ms/, "TIME")).toBe(
+      `Request tools/list: TIME status=200 era=${era} client="agent?${"x".repeat(194)}…"`,
+    );
+  });
+
+  test("logs a missing User-Agent as a dash", async () => {
+    const port = await listen();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const status = await new Promise<number | undefined>((resolve, reject) => {
+      const req = nodeRequest(
+        {
+          hostname: "127.0.0.1",
+          port,
+          path: "/mcp",
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json, text/event-stream",
+          },
+        },
+        (res) => {
+          res.resume();
+          res.on("end", () => resolve(res.statusCode));
+        },
+      );
+      req.on("error", reject);
+      req.end(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }));
+    });
+    expect(status).toBe(200);
+    await vi.waitFor(() =>
+      expect(spy).toHaveBeenCalledExactlyOnceWith(
+        expect.stringMatching(/^Request tools\/list: \d+ms status=200 era=2025 client="-"$/),
+      ),
+    );
+  });
+
+  test.each(["2025-11-25", "2026-07-28"])(
+    "preserves front responses and exact pre-routing logs for %s",
+    async (version) => {
+      const port = await listen();
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const headers = { "mcp-protocol-version": version };
+      for (const origin of ["", "https://evil.example"]) {
+        const forbidden = await rpc(port, {}, { ...headers, origin });
+        expect(forbidden.status).toBe(403);
+        expect(await forbidden.json()).toEqual({ error: "Forbidden" });
+      }
+      const method = await fetch(`http://127.0.0.1:${port}/mcp`, { headers });
+      expect(method.status).toBe(405);
+      expect(method.headers.get("allow")).toBe("POST");
+      expect(await method.json()).toEqual({
+        jsonrpc: "2.0",
+        error: { code: -32000, message: "Method not allowed." },
+        id: null,
+      });
+      const huge = await rpc(port, "x".repeat(1024 * 1024 + 1), headers);
+      expect(huge.status).toBe(413);
+      expect(await huge.json()).toEqual({
+        jsonrpc: "2.0",
+        error: { code: -32600, message: "Request body exceeds 1048576 bytes" },
+        id: null,
+      });
+      const invalid = await rpc(port, "{not json", headers);
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toEqual({
+        jsonrpc: "2.0",
+        error: { code: -32700, message: "Parse error" },
+        id: null,
+      });
+      await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(5));
+      expect(spy.mock.calls.map(([line]) => String(line).replace(/\d+ms/, "TIME"))).toEqual([
+        "Request unknown: TIME status=403",
+        "Request unknown: TIME status=403",
+        "Request unknown: TIME status=405",
+        "Request unknown: TIME status=413",
+        "Request unknown: TIME status=400",
+      ]);
+    },
+  );
+
+  test("keeps empty bodies on the legacy error path", async () => {
+    const port = await listen();
+    const response = await rpc(port, "");
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      jsonrpc: "2.0",
+      error: { code: -32700, message: "Parse error: Invalid JSON" },
+      id: null,
+    });
+  });
+
+  test.each(["2025", "2026"])("advertises result size limits over HTTP era %s", async (era) => {
+    const port = await listen();
+    const response =
+      era === "2026"
+        ? await modernRpc(port, "tools/list")
+        : await rpc(port, { jsonrpc: "2.0", id: 1, method: "tools/list" });
+    expect(response.status).toBe(200);
+    const { result } = await response.json();
+    expect(
+      result.tools.map((tool: { name: string; _meta: Record<string, unknown> }) => ({
+        name: tool.name,
+        maxResultSizeChars: tool._meta["anthropic/maxResultSizeChars"],
+      })),
+    ).toEqual([
+      { name: "web_search", maxResultSizeChars: 200000 },
+      { name: "fetch", maxResultSizeChars: 500000 },
+    ]);
+  });
+
+  test("calls modern tools without a handshake with legacy content parity and outcomes", async () => {
+    const braveClient: BraveClient = { llmContext: vi.fn(async () => raw) };
+    const port = await listen({ braveClient });
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const params = { name: "web_search", arguments: { query: "coffee" } };
+    const modern = await modernRpc(port, "tools/call", params);
+    expect(modern.status).toBe(200);
+    const modernBody = await modern.json();
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^Request tools\/call web_search q="coffee": \d+ms status=200 era=2026 client="node" results=1 snippets=1 chars=5$/,
+      ),
+    );
+    const legacy = await rpc(port, { jsonrpc: "2.0", id: 2, method: "tools/call", params });
+    expect(modernBody.result.structuredContent).toEqual((await legacy.json()).result.structuredContent);
+    expect(modernBody.result.structuredContent.result_count).toBe(1);
+  });
+
   test("closes transport and server exactly once when the client disconnects mid-request", async () => {
     const started = Promise.withResolvers<void>();
     const pending = Promise.withResolvers<typeof raw>();
@@ -164,7 +374,9 @@ describe("createHttpServer", () => {
         expect(serverClose).toHaveBeenCalledTimes(1);
       });
       expect(log).toHaveBeenCalledExactlyOnceWith(
-        expect.stringMatching(/^Request tools\/call web_search q="coffee": \d+ms aborted status=200 rejected$/),
+        expect.stringMatching(
+          /^Request tools\/call web_search q="coffee": \d+ms aborted status=200 era=2025 client="node" rejected$/,
+        ),
       );
       pending.resolve(raw);
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -202,7 +414,8 @@ describe("createHttpServer", () => {
   test.each(["2025-06-18", "2025-11-25"])(
     "preserves JSON responses and notification acceptance for %s",
     async (protocolVersion) => {
-      const port = await listen();
+      const braveClient: BraveClient = { llmContext: vi.fn(async () => raw) };
+      const port = await listen({ braveClient });
       const headers = { "mcp-protocol-version": protocolVersion };
       const init = await rpc(
         port,
@@ -216,16 +429,33 @@ describe("createHttpServer", () => {
       );
       expect(init.status).toBe(200);
       expect(init.headers.get("content-type")).toBe("application/json");
-      expect((await init.json()).result.protocolVersion).toBe(protocolVersion);
+      const initResult = (await init.json()).result;
+      expect(initResult.protocolVersion).toBe(protocolVersion);
+      expect(JSON.stringify(initResult)).not.toMatch(/"(?:ttlMs|cacheScope)"\s*:/);
       const initialized = await rpc(port, { jsonrpc: "2.0", method: "notifications/initialized" }, headers);
       expect(initialized.status).toBe(202);
       const list = await rpc(port, { jsonrpc: "2.0", id: 2, method: "tools/list" }, headers);
       expect(list.status).toBe(200);
       expect(list.headers.get("content-type")).toBe("application/json");
-      expect((await list.json()).result.tools.map((tool: { name: string }) => tool.name)).toEqual([
-        "web_search",
-        "fetch",
-      ]);
+      const listResult = (await list.json()).result;
+      expect(listResult.tools.map((tool: { name: string }) => tool.name)).toEqual(["web_search", "fetch"]);
+      const call = await rpc(
+        port,
+        {
+          jsonrpc: "2.0",
+          id: 3,
+          method: "tools/call",
+          params: { name: "web_search", arguments: { query: "coffee" } },
+        },
+        headers,
+      );
+      expect(call.status).toBe(200);
+      expect(call.headers.get("content-type")).toBe("application/json");
+      const callResult = (await call.json()).result;
+      expect(callResult.structuredContent.result_count).toBe(1);
+      for (const result of [listResult, callResult]) {
+        expect(JSON.stringify(result)).not.toMatch(/"(?:ttlMs|cacheScope)"\s*:/);
+      }
     },
   );
 
@@ -261,7 +491,7 @@ describe("createHttpServer", () => {
     const port = await listen();
     const response = await fetch(`http://127.0.0.1:${port}/health`);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ status: "ok", service: "cubicj-mcp-search", version: SERVER_VERSION });
+    expect(await response.json()).toEqual({ status: "ok", service: "cubicj-mcp-search", version: "0.2.0" });
   });
 
   test("rejects any request with an Origin header", async () => {
@@ -347,7 +577,7 @@ describe("createHttpServer", () => {
     const lines = spy.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith("Request tools/call web_search"));
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(
-      /^Request tools\/call web_search q="coffee" count=20 max_tokens=16384 freshness="pw" country="KR": \d+ms status=200 results=1 snippets=1 chars=5$/,
+      /^Request tools\/call web_search q="coffee" count=20 max_tokens=16384 freshness="pw" country="KR": \d+ms status=200 era=2025 client="node" results=1 snippets=1 chars=5$/,
     );
     expect(lines[0]).not.toContain("First");
   });
@@ -365,7 +595,7 @@ describe("createHttpServer", () => {
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy).toHaveBeenCalledWith(
       expect.stringMatching(
-        /^Request tools\/call web_search q="coffee": \d+ms status=200 tool_error reason="web_search failed: BRAVE_API_KEY is not configured"$/,
+        /^Request tools\/call web_search q="coffee": \d+ms status=200 era=2025 client="node" tool_error reason="web_search failed: BRAVE_API_KEY is not configured"$/,
       ),
     );
   });
@@ -384,7 +614,9 @@ describe("createHttpServer", () => {
     expect(braveClient.llmContext).not.toHaveBeenCalled();
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy).toHaveBeenCalledWith(
-      expect.stringMatching(/^Request tools\/call web_search q="coffee" country="XX": \d+ms status=200 rejected$/),
+      expect.stringMatching(
+        /^Request tools\/call web_search q="coffee" country="XX": \d+ms status=200 era=2025 client="node" rejected$/,
+      ),
     );
   });
 
@@ -410,7 +642,7 @@ describe("createHttpServer", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(spy).toHaveBeenCalledExactlyOnceWith(
       expect.stringMatching(
-        /^Request tools\/call fetch url="https:\/\/x\.example" start_index=8 max_length=8 raw=false: \d+ms status=200 extractor=defuddle http=200 chars=8$/,
+        /^Request tools\/call fetch url="https:\/\/x\.example" start_index=8 max_length=8 raw=false: \d+ms status=200 era=2025 client="node" extractor=defuddle http=200 chars=8$/,
       ),
     );
   });
@@ -436,7 +668,7 @@ describe("createHttpServer", () => {
     expect(spy).toHaveBeenCalledExactlyOnceWith(
       expect.stringMatching(
         new RegExp(
-          `^Request tools/call fetch url="https://x\\.example": \\d+ms status=200 extractor=defuddle ${outcome}$`,
+          `^Request tools/call fetch url="https://x\\.example": \\d+ms status=200 era=2025 client="node" extractor=defuddle ${outcome}$`,
         ),
       ),
     );
