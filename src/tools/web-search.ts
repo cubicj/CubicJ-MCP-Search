@@ -87,7 +87,7 @@ export async function runWebSearch(client: BraveClient | undefined, args: WebSea
       ...(args.country !== undefined ? { country: args.country } : {}),
       ...(args.search_lang !== undefined ? { search_lang: args.search_lang } : {}),
     });
-    const results = normalizeLlmContext(raw);
+    const results = normalizeLlmContext(raw).slice(0, args.count);
     const payload = { query: args.query, result_count: results.length, results };
     return { structuredContent: payload, content: [{ type: "text", text: JSON.stringify(payload) }] };
   } catch (error) {

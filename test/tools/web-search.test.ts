@@ -99,6 +99,20 @@ describe("runWebSearch", () => {
     expect(textOf(result)).toBe(JSON.stringify(expected));
   });
 
+  test("caps results at count when Brave returns more sources", async () => {
+    const generic = Array.from({ length: 10 }, (_, i) => ({ url: `https://example.com/${i}`, snippets: [`s${i}`] }));
+    const c = client(async () => ({ grounding: { generic } }));
+    const result = await runWebSearch(c, { query: "coffee", count: 3, max_tokens: 2048 });
+
+    const payload = result.structuredContent as { result_count: number; results: Array<{ url: string }> };
+    expect(payload.result_count).toBe(3);
+    expect(payload.results.map((r) => r.url)).toEqual([
+      "https://example.com/0",
+      "https://example.com/1",
+      "https://example.com/2",
+    ]);
+  });
+
   test("does not send optional parameters that are absent", async () => {
     const c = client(async () => raw);
     await runWebSearch(c, { query: "coffee", count: 8, max_tokens: 8192 });
